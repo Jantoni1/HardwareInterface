@@ -61,13 +61,10 @@ namespace HardwareInterface
                     {
                         // Translate data bytes to a ASCII string.
                         data = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
-                        Console.WriteLine("Received: {0}", data);
 
                         byte[] msg = getCpuTemperature();
-
                         // Send back a response.
                         stream.Write(msg, 0, msg.Length);
-                        Console.WriteLine("Sent: {0}", data);
                     }
 
                     // Shutdown and end connection
@@ -120,7 +117,6 @@ namespace HardwareInterface
             timestamp_bytes.CopyTo(byte_array, 4);
             Console.WriteLine(temp);
             Console.WriteLine(Encoding.Default.GetString(byte_array));
-            Console.ReadLine();
             return byte_array;
         }
 
