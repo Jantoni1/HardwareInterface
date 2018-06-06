@@ -20,7 +20,7 @@ namespace HardwareInterface
             {
                 if (args.Length != 1)
                 {
-                    Console.WriteLine("Usage: hardware_daemon.exe <ip_address>:<port>");
+                    throw new Exception("Usage: hardware_daemon.exe <ip_address>:<port>");
                 }
                 String[] Array = args[0].Split(':');
                 Server server = new HardwareInterface.Server(Array[0], Int32.Parse(Array[1]));
@@ -29,9 +29,7 @@ namespace HardwareInterface
             }
             catch (Exception e) {
                 Console.WriteLine(e.Message);
-                Console.WriteLine("caught");
             }
-
 
         }
     }
