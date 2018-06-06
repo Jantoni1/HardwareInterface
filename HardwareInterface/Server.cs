@@ -14,21 +14,47 @@ namespace HardwareInterface
     {
         private IPAddress ip_address_;
         private Int32 port_;
-
+        TcpListener server;
+        TcpClient client;
+        bool interrupted;
+        
         public Server(String ip_address, Int32 port) {
             ip_address_ = IPAddress.Parse(ip_address);
             port_ = port;
             thisComputer = new Computer() { CPUEnabled = true };
             thisComputer.Open();
+            server = null;
+            client = null;
+            interrupted = false;
+            SetConsoleCtrlHandler(new HandlerRoutine(ConsoleCtrlCheck), true);
         }
 
-        
+        [System.Runtime.InteropServices.DllImport("Kernel32")]
+        public static extern bool SetConsoleCtrlHandler(HandlerRoutine Handler, bool Add);
+
+        // A delegate type to be used as the handler routine 
+        // for SetConsoleCtrlHandler.
+        public delegate bool HandlerRoutine(CtrlTypes CtrlType);
+
+        public enum CtrlTypes
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_BREAK_EVENT,
+            CTRL_CLOSE_EVENT,
+            CTRL_LOGOFF_EVENT = 5,
+            CTRL_SHUTDOWN_EVENT
+        }
+
+        private bool ConsoleCtrlCheck(CtrlTypes ctrlType)
+        {
+            Console.WriteLine("Stopping...");
+            interrupted = true;
+            return true;
+        }
+
 
         public void serverLoop() {
-            TcpListener server = null;
-            try
-            {
-
+          
                 // TcpListener server = new TcpListener(port);
                 server = new TcpListener(ip_address_, port_);
 
@@ -40,83 +66,101 @@ namespace HardwareInterface
                 String data = null;
 
                 // Enter the listening loop.
-                while (true)
-                {
-                    Console.Write("Waiting for a connection... ");
-
-                    // Perform a blocking call to accept requests.
-                    // You could also user server.AcceptSocket() here.
-                    TcpClient client = server.AcceptTcpClient();
-                    Console.WriteLine("Connected!");
-
-                    data = null;
-
-                    // Get a stream object for reading and writing
-                    NetworkStream stream = client.GetStream();
-
-                    int i;
-
-                    // Loop to receive all the data sent by the client.
-                    while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
+                try {
+                    while (true)
                     {
-                        // Translate data bytes to a ASCII string.
-                        data = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
+                        Console.WriteLine("Waiting for a connection. .. ");
 
-                        byte[] msg = getCpuTemperature();
-                        // Send back a response.
-                        stream.Write(msg, 0, msg.Length);
+                        // Perform a blocking call to accept requests.
+                        // You could also user server.AcceptSocket() here.
+                        while (!server.Pending())
+                        {
+                            if (interrupted) {
+                                throw new SocketException();
+                            }
+                            System.Threading.Thread.Sleep(2);
+                        }
+                        client = server.AcceptTcpClient();
+                        client.ReceiveTimeout = 2000;
+
+                        Console.WriteLine("Connected!");
+
+                        data = null;
+
+                        // Get a stream object for reading and writing
+                        NetworkStream stream = client.GetStream();
+
+                        int i;
+
+                        // Loop to receive all the data sent by the client.
+                        while ((i = stream.Read(bytes, 0, bytes.Length)) != 0)
+                        {
+                            if (interrupted) {
+                                throw new SocketException();
+                            }
+                            // Translate data bytes to a ASCII string.
+                            data = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
+
+                            byte[] msg = getCpuTemperature();
+                            // Send back a response.
+                            stream.Write(msg, 0, msg.Length);
+                        }
+
+                        // Shutdown and end connection
+                        client.Close();
                     }
+                }
+                catch (SocketException)
+                {
+                }
+                finally
+                {
+                    // Stop listening for new clients.
+                    server.Stop();
+                }
 
-                    // Shutdown and end connection
-                    client.Close();
+        }
+
+
+        private Int32 findHardwareItem(IHardware hardwareItem) {
+            hardwareItem.Update();
+            foreach (IHardware subHardware in hardwareItem.SubHardware)
+                subHardware.Update();
+
+            foreach (var sensor in hardwareItem.Sensors)
+            {
+                if (sensor.SensorType == SensorType.Temperature && String.Compare(sensor.Name, "CPU Package", false) == 0)
+                {
+                    return IPAddress.HostToNetworkOrder(sensor.Value.HasValue ? (Int32)sensor.Value.Value : -1);
                 }
             }
-            catch (SocketException e)
-            {
-                Console.WriteLine("SocketException: {0}", e);
-            }
-            finally
-            {
-                // Stop listening for new clients.
-                server.Stop();
-            }
+            return int.MinValue;
+        }
 
 
-            Console.WriteLine("\nHit enter to continue...");
-            Console.Read();
+        private Int32 getTemperature() {
+            foreach (var hardwareItem in thisComputer.Hardware)
+            {
+                if (hardwareItem.HardwareType == HardwareType.CPU && findHardwareItem(hardwareItem) != int.MinValue)
+                {
+                    return findHardwareItem(hardwareItem);
+                }
+            }
+            return int.MinValue;
         }
 
         private byte[] getCpuTemperature()
         {
             String temp = "";
-            Int32 temperature = -1;
+            Int32 temperature = getTemperature();
 
             Int64 unixTimestamp = IPAddress.HostToNetworkOrder((Int64)(DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1))).TotalSeconds);
-            foreach (var hardwareItem in thisComputer.Hardware)
-            {
-                if (hardwareItem.HardwareType == HardwareType.CPU)
-                {
-                    hardwareItem.Update();
-                    foreach (IHardware subHardware in hardwareItem.SubHardware)
-                        subHardware.Update();
-
-                    foreach (var sensor in hardwareItem.Sensors)
-                    {
-                        if (sensor.SensorType == SensorType.Temperature && String.Compare(sensor.Name, "CPU Package", false) == 0)
-                        {
-                            temperature = IPAddress.HostToNetworkOrder(sensor.Value.HasValue ? (Int32)sensor.Value.Value : -1);
-                            temp += String.Format("{0} Temperature = {1}\r\n", sensor.Name, sensor.Value.HasValue ? sensor.Value.Value.ToString() : "no value");
-                        }
-                    }
-                }
-            }
+            
             byte[] temperature_bytes = BitConverter.GetBytes(temperature);
             byte[] timestamp_bytes = BitConverter.GetBytes(unixTimestamp);
             byte[] byte_array = new byte[12];
             temperature_bytes.CopyTo(byte_array, 0);
             timestamp_bytes.CopyTo(byte_array, 4);
-            Console.WriteLine(temp);
-            Console.WriteLine(Encoding.Default.GetString(byte_array));
             return byte_array;
         }
 

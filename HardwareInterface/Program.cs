@@ -12,17 +12,27 @@ namespace HardwareInterface
 {
     class Program
     {
-
+        
 
         static void Main(string[] args)
         {
-            if (args.Length != 1)
+            try
             {
-                Console.WriteLine("Usage: hardware_daemon.exe <ip_address>:<port>");
+                if (args.Length != 1)
+                {
+                    Console.WriteLine("Usage: hardware_daemon.exe <ip_address>:<port>");
+                }
+                String[] Array = args[0].Split(':');
+                Server server = new HardwareInterface.Server(Array[0], Int32.Parse(Array[1]));
+                server.serverLoop();
+
             }
-            String[] Array = args[0].Split(':');
-            Server server = new HardwareInterface.Server(Array[0], Int32.Parse(Array[1]));
-            server.serverLoop();
+            catch (Exception e) {
+                Console.WriteLine(e.Message);
+                Console.WriteLine("caught");
+            }
+
+
         }
     }
 
